@@ -15,7 +15,7 @@ declare_id!("AfZt7zP6v3sBh4JjyjuEvmf4iRnhkaK8xYiim4tkZMAj");
 pub mod solana_airdrop {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, root: [u8; 32]) -> Result<()> {
-        initialize::handler(ctx, root)
+    pub fn initialize(ctx: Context<Initialize>, root: [u8; 32], stock: u64) -> Result<()> {
+        initialize::handler(ctx, root, stock)
     }
 }
