@@ -4,10 +4,9 @@ use anchor_spl::{
     token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
 };
 
-use crate::airdrop::Airdrop;
+use crate::Airdrop;
 
 #[derive(Accounts)]
-#[instruction(root: [u8; 32])]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -16,7 +15,8 @@ pub struct Initialize<'info> {
     pub token: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
-        mut,
+        init_if_needed,
+        payer = signer,
         associated_token::mint = token,
         associated_token::authority = signer,
         associated_token::token_program = token_program
@@ -27,7 +27,7 @@ pub struct Initialize<'info> {
         init,
         payer = signer,
         space = 8 + Airdrop::INIT_SPACE,
-        seeds = [b"airdrop", signer.key().as_ref(), root.as_ref(), token.key().as_ref()],
+        seeds = [b"airdrop", signer.key().as_ref(), token.key().as_ref()],
         bump
     )]
     pub airdrop: Box<Account<'info, Airdrop>>,
@@ -46,10 +46,11 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<Initialize>, root: [u8; 32], stock: u64) -> Result<()> {
+pub fn initialize_handler(ctx: Context<Initialize>, root: [u8; 32], stock: u64) -> Result<()> {
     let airdrop = &mut ctx.accounts.airdrop;
     airdrop.token = ctx.accounts.token.key();
     airdrop.root = root;
+    airdrop.bump = ctx.bumps.airdrop;
 
     let transfer_accounts = TransferChecked {
         from: ctx.accounts.signer_token_account.to_account_info(),

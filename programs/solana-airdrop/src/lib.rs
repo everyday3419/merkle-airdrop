@@ -16,6 +16,10 @@ pub mod solana_airdrop {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>, root: [u8; 32], stock: u64) -> Result<()> {
-        initialize::handler(ctx, root, stock)
+        initialize::initialize_handler(ctx, root, stock)
+    }
+
+    pub fn claim(ctx: Context<Claim>, proof: Vec<[u8; 32]>, amount: u64) -> Result<()> {
+        claim::claim_handler(ctx, proof, amount)
     }
 }

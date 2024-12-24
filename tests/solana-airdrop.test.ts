@@ -1,5 +1,5 @@
 import * as anchor from "@coral-xyz/anchor";
-import crypto from "crypto";
+import { keccak256 } from "js-sha3";
 import { Program, web3 } from "@coral-xyz/anchor";
 import MerkleTree from "merkletreejs";
 import { SolanaAirdrop } from "../target/types/solana_airdrop";
@@ -21,9 +21,10 @@ import {
 } from "@solana/spl-token";
 
 describe("solana-airdrop", () => {
-  const provider = anchor.AnchorProvider.env();
+  const provider = anchor.AnchorProvider.local();
   anchor.setProvider(provider);
   const connection = provider.connection;
+  const signer = web3.Keypair.generate();
   const user = web3.Keypair.generate();
   let testToken: PublicKey;
 
@@ -40,15 +41,15 @@ describe("solana-airdrop", () => {
   beforeAll(async () => {
     await airdropIfRequired(
       connection,
-      user.publicKey,
+      signer.publicKey,
       1 * LAMPORTS_PER_SOL,
       1 * LAMPORTS_PER_SOL
     );
 
     testToken = await createMint(
       connection,
-      user,
-      user.publicKey,
+      signer,
+      signer.publicKey,
       null,
       6,
       Keypair.generate(),
@@ -58,7 +59,7 @@ describe("solana-airdrop", () => {
 
     const userUsdcAccount = await getAssociatedTokenAddress(
       testToken,
-      user.publicKey,
+      signer.publicKey,
       false,
       TOKEN_PROGRAM_ID
     );
@@ -68,9 +69,9 @@ describe("solana-airdrop", () => {
     } catch {
       await createAssociatedTokenAccount(
         connection,
-        user,
+        signer,
         testToken,
-        user.publicKey,
+        signer.publicKey,
         null,
         TOKEN_PROGRAM_ID
       );
@@ -78,10 +79,10 @@ describe("solana-airdrop", () => {
 
     await mintTo(
       connection,
-      user,
+      signer,
       testToken,
       userUsdcAccount,
-      user,
+      signer,
       9_000_000,
       [],
       null,
@@ -91,24 +92,28 @@ describe("solana-airdrop", () => {
 
   it("Is initialized!", async () => {
     const program = anchor.workspace.SolanaAirdrop as Program<SolanaAirdrop>;
-    const leaves = ["foo", "bar", "baz", "qux"].map((x) =>
-      crypto.createHash("sha256").update(x).digest()
+    const leaf = keccak256(
+      Buffer.concat([
+        user.publicKey.toBuffer(),
+        Buffer.from(new anchor.BN(9_000_000).toArray("le", 8)),
+      ])
     );
-    const tree = new MerkleTree(leaves, (data: crypto.BinaryLike) =>
-      crypto.createHash("sha256").update(data).digest()
-    );
+    const leaves = [leaf];
+    const tree = new MerkleTree(leaves, keccak256);
     const root = tree.getRoot();
+
+    const proof = tree.getProof(leaves[0]);
 
     let tx: string | null = null;
     try {
       tx = await program.methods
         .initialize(Array.from(root), new anchor.BN(9_000_000))
         .accounts({
-          signer: user.publicKey,
+          signer: signer.publicKey,
           token: testToken,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
-        .signers([user])
+        .signers([signer])
         .rpc();
     } catch (e) {
       console.log(e);
@@ -118,8 +123,7 @@ describe("solana-airdrop", () => {
     const [airdropAddress] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("airdrop"),
-        user.publicKey.toBuffer(),
-        root,
+        signer.publicKey.toBuffer(),
         testToken.toBuffer(),
       ],
       program.programId
@@ -138,5 +142,25 @@ describe("solana-airdrop", () => {
     expect(await getTokenBalance(connection, vault)).toEqual(
       new anchor.BN(9_000_000)
     );
+
+    const formattedProof = proof.map((item) => Array.from(item.data));
+
+    let tx1: string | null = null;
+    try {
+      tx1 = await program.methods
+        .claim(formattedProof, new anchor.BN(9_000_000))
+        .accounts({
+          signer: signer.publicKey,
+          recipient: user.publicKey,
+          token: testToken,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([signer])
+        .rpc();
+    } catch (e) {
+      console.log(e);
+    }
+
+    expect(tx1).not.toBeNull();
   });
 });
