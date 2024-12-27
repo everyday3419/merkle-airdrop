@@ -21,11 +21,11 @@ import {
 } from "@solana/spl-token";
 
 describe("solana-airdrop", () => {
-  const provider = anchor.AnchorProvider.local();
+  const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const connection = provider.connection;
   const signer = web3.Keypair.generate();
-  const user = web3.Keypair.generate();
+  const users = Array.from({ length: 20 }, () => web3.Keypair.generate());
   let testToken: PublicKey;
 
   const getTokenBalance = async (
@@ -42,7 +42,7 @@ describe("solana-airdrop", () => {
     await airdropIfRequired(
       connection,
       signer.publicKey,
-      1 * LAMPORTS_PER_SOL,
+      2 * LAMPORTS_PER_SOL,
       1 * LAMPORTS_PER_SOL
     );
 
@@ -57,7 +57,7 @@ describe("solana-airdrop", () => {
       TOKEN_PROGRAM_ID
     );
 
-    const userUsdcAccount = await getAssociatedTokenAddress(
+    const signerUsdcAccount = await getAssociatedTokenAddress(
       testToken,
       signer.publicKey,
       false,
@@ -65,7 +65,7 @@ describe("solana-airdrop", () => {
     );
 
     try {
-      await getAccount(connection, userUsdcAccount, null, TOKEN_PROGRAM_ID);
+      await getAccount(connection, signerUsdcAccount, null, TOKEN_PROGRAM_ID);
     } catch {
       await createAssociatedTokenAccount(
         connection,
@@ -81,33 +81,36 @@ describe("solana-airdrop", () => {
       connection,
       signer,
       testToken,
-      userUsdcAccount,
+      signerUsdcAccount,
       signer,
-      9_000_000,
+      50_000_000,
       [],
       null,
       TOKEN_PROGRAM_ID
     );
   });
 
-  it("Is initialized!", async () => {
+  it("Airdrop initialization and claim", async () => {
     const program = anchor.workspace.SolanaAirdrop as Program<SolanaAirdrop>;
-    const leaf = keccak256(
-      Buffer.concat([
-        user.publicKey.toBuffer(),
-        Buffer.from(new anchor.BN(9_000_000).toArray("le", 8)),
-      ])
-    );
-    const leaves = [leaf];
-    const tree = new MerkleTree(leaves, keccak256);
+
+    const leaves = users.map((user, index) => {
+      const amount = 500_000 + index * 10_000;
+      return keccak256(
+        Buffer.concat([
+          user.publicKey.toBuffer(),
+          Buffer.from(new anchor.BN(amount).toArray("le", 8)),
+        ])
+      );
+    });
+
+    const tree = new MerkleTree(leaves, keccak256, { sortPairs: true });
     const root = tree.getRoot();
 
-    const proof = tree.getProof(leaves[0]);
-
-    let tx: string | null = null;
+    const totalAirdropAmount = 50_000_000;
+    let initTx: string | null = null;
     try {
-      tx = await program.methods
-        .initialize(Array.from(root), new anchor.BN(9_000_000))
+      initTx = await program.methods
+        .initialize(Array.from(root), new anchor.BN(totalAirdropAmount))
         .accounts({
           signer: signer.publicKey,
           token: testToken,
@@ -119,7 +122,8 @@ describe("solana-airdrop", () => {
       console.log(e);
     }
 
-    expect(tx).not.toBeNull();
+    expect(initTx).not.toBeNull();
+
     const [airdropAddress] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("airdrop"),
@@ -129,7 +133,6 @@ describe("solana-airdrop", () => {
       program.programId
     );
     const aidrop = await program.account.airdrop.fetch(airdropAddress);
-
     expect(Buffer.from(aidrop.root)).toEqual(root);
 
     const vault = getAssociatedTokenAddressSync(
@@ -140,27 +143,49 @@ describe("solana-airdrop", () => {
     );
 
     expect(await getTokenBalance(connection, vault)).toEqual(
-      new anchor.BN(9_000_000)
+      new anchor.BN(totalAirdropAmount)
     );
 
-    const formattedProof = proof.map((item) => Array.from(item.data));
+    for (let i = 0; i < 5; i++) {
+      const user = users[i];
+      const amount = 500_000 + i * 10_000;
 
-    let tx1: string | null = null;
-    try {
-      tx1 = await program.methods
-        .claim(formattedProof, new anchor.BN(9_000_000))
-        .accounts({
-          signer: signer.publicKey,
-          recipient: user.publicKey,
-          token: testToken,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .signers([signer])
-        .rpc();
-    } catch (e) {
-      console.log(e);
+      const leaf = keccak256(
+        Buffer.concat([
+          user.publicKey.toBuffer(),
+          Buffer.from(new anchor.BN(amount).toArray("le", 8)),
+        ])
+      );
+
+      const proof = tree.getProof(leaf).map((item) => Array.from(item.data));
+
+      const userTokenAccount = await getAssociatedTokenAddress(
+        testToken,
+        user.publicKey,
+        false,
+        TOKEN_PROGRAM_ID
+      );
+
+      let claimTx: string | null = null;
+      try {
+        claimTx = await program.methods
+          .claim(proof, new anchor.BN(amount))
+          .accounts({
+            signer: signer.publicKey,
+            recipient: user.publicKey,
+            token: testToken,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([signer])
+          .rpc();
+      } catch (e) {
+        console.log(e);
+      }
+
+      expect(claimTx).not.toBeNull();
+      expect(await getTokenBalance(connection, userTokenAccount)).toEqual(
+        new anchor.BN(amount)
+      );
     }
-
-    expect(tx1).not.toBeNull();
   });
 });

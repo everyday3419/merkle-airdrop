@@ -6,7 +6,7 @@ use anchor_spl::{
     token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
 };
 
-use crate::{error::ErrorCode, Airdrop};
+use crate::{error::ErrorCode, Airdrop, ClaimStatus};
 
 #[derive(Accounts)]
 pub struct Claim<'info> {
@@ -34,6 +34,15 @@ pub struct Claim<'info> {
         bump = airdrop.bump
     )]
     pub airdrop: Box<Account<'info, Airdrop>>,
+
+    #[account(
+        init,
+        payer = signer,
+        space = 8 + ClaimStatus::INIT_SPACE,
+        seeds = [b"claim_status", recipient.key().as_ref(), token.key().as_ref()],
+        bump
+    )]
+    pub claim_status: Box<Account<'info, ClaimStatus>>,
 
     #[account(
         mut,
@@ -67,6 +76,9 @@ pub fn claim_handler(ctx: Context<Claim>, proof: Vec<[u8; 32]>, amount: u64) -> 
     }
 
     require!(computed_hash == root, ErrorCode::InvalidMerkleProof);
+
+    let claim_status = &mut ctx.accounts.claim_status;
+    claim_status.claimed = true;
 
     let signer = ctx.accounts.signer.key();
     let token = ctx.accounts.token.key();
