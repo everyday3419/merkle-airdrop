@@ -22,4 +22,8 @@ pub mod solana_airdrop {
     pub fn claim(ctx: Context<Claim>, proof: Vec<[u8; 32]>, amount: u64) -> Result<()> {
         claim::claim_handler(ctx, proof, amount)
     }
+
+    pub fn withdraw_and_close_vault(ctx: Context<WithdrawAndCloseVault>) -> Result<()> {
+        withdraw_and_close_vault::withdraw_and_close_vault_handler(ctx)
+    }
 }

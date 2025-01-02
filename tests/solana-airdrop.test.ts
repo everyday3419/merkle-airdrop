@@ -187,5 +187,34 @@ describe("solana-airdrop", () => {
         new anchor.BN(amount)
       );
     }
+
+    const signerTokenAccount = await getAssociatedTokenAddress(
+      testToken,
+      signer.publicKey,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+
+    const vaultBalanceBefore = await getTokenBalance(connection, vault);
+
+    let withdrawTx: string | null = null;
+    try {
+      withdrawTx = await program.methods
+        .withdrawAndCloseVault()
+        .accounts({
+          signer: signer.publicKey,
+          token: testToken,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([signer])
+        .rpc();
+    } catch (e) {
+      console.log(e);
+    }
+
+    expect(withdrawTx).not.toBeNull();
+    expect(await getTokenBalance(connection, signerTokenAccount)).toEqual(
+      vaultBalanceBefore
+    );
   });
 });
