@@ -16,7 +16,7 @@ graph TD
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/tsukigatari/merkle-airdrop
+git clone https://github.com/everyday3419/merkle-airdrop
 cd merkle-airdrop
 ```
 
